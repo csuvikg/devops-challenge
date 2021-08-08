@@ -1,1 +1,6 @@
+# intellij
+.idea
+*.iml
+
+# python-related
 /venv
