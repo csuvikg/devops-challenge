@@ -1,4 +1,7 @@
 Parameters:
+  DatabaseUsername:
+    Type: String
+    Default: 'root'
   DatabasePassword:
     Type: String
     Default: 'oK6Jsqseqtx#Jn7reWi^WD'
@@ -12,7 +15,7 @@ Resources:
       AccessControl: PublicRead
       WebsiteConfiguration:
         IndexDocument: index.html
-  DatabasePassword:
+  DatabasePasswordParameter:
     Type: AWS::SSM::Parameter
     Properties:
       Type: String
@@ -22,65 +25,90 @@ Resources:
     Properties:
       DBInstanceClass: db.t2.micro
       Engine: postgres
-      MasterUserPassword: !GetAtt DatabasePassword.Value
+      EngineVersion: '12.7'
+      MasterUsername: !Ref DatabaseUsername
+      MasterUserPassword: !GetAtt DatabasePasswordParameter.Value
+      AllocatedStorage: '20'
   CICDPipelineRole:
     Type: AWS::IAM::Role
     Properties:
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
-          Statement:
-            - Effect: Allow
-              Principal:
-                Service:
-                  - codepipeline.amazonaws.com
-              Action:
-                - 'sts:AssumeRole'
-          Policies:
-            - PolicyName: EnableDockerRegistryPush
-              PolicyDocument:
-                Version: '2012-10-17'
-                Statement:
-                  - Effect: Allow
-                    Action: 'ecr:PutImage'
-                    Resource: !GetAtt DockerRegistry.Arn
-            - PolicyName: EnableS3Upload
-              PolicyDocument:
-                Version: '2012-10-17'
-                Statement:
-                  - Effect: Allow
-                    Action: 's3:PutObject'
-                    Resource: !GetAtt DockerRegistry.Arn
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - codepipeline.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: EnableDockerRegistryPush
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: ecr:PutImage
+                Resource: !GetAtt DockerRegistry.Arn
+        - PolicyName: EnableS3Upload
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: s3:PutObject
+                Resource: !GetAtt DockerRegistry.Arn
+  Repository:
+    Type: AWS::CodeCommit::Repository
+    Properties:
+      RepositoryName: 'devops-challenge'
+      Code:
+        BranchName: 'master'
+        S3:
+          Bucket: 'devops-challenge-content'
+          Key: 'test.zip'
+  PipelineArtifactStore:
+    Type: AWS::S3::Bucket
   CICDPipeline:
     Type: AWS::CodePipeline::Pipeline
     Properties:
       RoleArn: !GetAtt CICDPipelineRole.Arn
       Stages:
-        - Name: 'Checkout code'
+        - Name: 'checkout-code'
           Actions:
-            - Name: 'Checkout from GitHub'
+            - Name: 'checkout-from-repository'
               ActionTypeId:
                 Category: Source
-                Owner: ThirdParty
-                Provider: GitHub
+                Owner: AWS
                 Version: '1'
+                Provider: CodeCommit
               OutputArtifacts:
                 - Name: SourceOutput
               Configuration:
-                Repo: 'https://github.com/csuvikg/devops-challenge'
-                Branch: 'master'
-                PollForSourceChanges: false
+                BranchName: 'master'
+                RepositoryName: !GetAtt Repository.Name
+                PollForSourceChanges: true
               RunOrder: 1
-        - Name: 'Build and push docker image'
-          Actions:
-            - Name: 'Build docker image'
-              ActionTypeId:
-                Category: Build
-                Owner: AWS
-                Provider: CodeBuild
-                Version: '1'
-              Configuration:
+      ArtifactStore:
+        Type: S3
+        Location: !Ref PipelineArtifactStore
+#        - Name: 'Build and push docker image'
+#          Actions:
+#            - Name: 'Build docker image'
+#              ActionTypeId:
+#                Category: Build
+#                Owner: AWS
+#                Provider: CodeBuild
+#                Version: '1'
+#              Configuration:
                 
 
               #          Actions:
 #        - Name: 'Upload static content to S3 bucket'
 #          Actions:
+
+
+# IAM role for python
+# - allows reading db pw
+# - allows desribeDbInstances for db instance
+
+# AWS::IAM::AccessKey
+# pass to python env
