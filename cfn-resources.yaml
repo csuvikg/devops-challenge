@@ -12,23 +12,43 @@ Resources:
   StaticHostingBucket:
     Type: AWS::S3::Bucket
     Properties:
-      AccessControl: PublicRead
       WebsiteConfiguration:
         IndexDocument: index.html
+  StaticHostingPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref StaticHostingBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Action: 's3:GetObject'
+            Effect: Allow
+            Resource: !Sub "arn:aws:s3:::${StaticHostingBucket}/*"
+            Principal: '*'
+          - Action: 's3:PutObject'
+            Effect: Allow
+            Resource: !Sub "arn:aws:s3:::${StaticHostingBucket}/*"
+            Principal:
+              AWS: !GetAtt CICDPipelineRole.Arn
+          - Action: '*'
+            Effect: Allow
+            Resource: !Sub "arn:aws:s3:::${StaticHostingBucket}/*"
+            Principal:
+              AWS: !Sub "arn:aws:iam::${AWS::AccountId}:root"
   DatabasePasswordParameter:
     Type: AWS::SSM::Parameter
     Properties:
       Type: String
       Value: !Ref DatabasePassword
-#  Database:
-#    Type: AWS::RDS::DBInstance
-#    Properties:
-#      DBInstanceClass: db.t2.micro
-#      Engine: postgres
-#      EngineVersion: '12.7'
-#      MasterUsername: !Ref DatabaseUsername
-#      MasterUserPassword: !GetAtt DatabasePasswordParameter.Value
-#      AllocatedStorage: '20'
+  Database:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBInstanceClass: db.t2.micro
+      Engine: postgres
+      EngineVersion: '12.7'
+      MasterUsername: !Ref DatabaseUsername
+      MasterUserPassword: !GetAtt DatabasePasswordParameter.Value
+      AllocatedStorage: '20'
   CICDPipelineRole:
     Type: AWS::IAM::Role
     Properties:
@@ -39,23 +59,72 @@ Resources:
             Principal:
               Service:
                 - codepipeline.amazonaws.com
+                - codebuild.amazonaws.com
             Action:
               - sts:AssumeRole
       Policies:
+        - PolicyName: CodeBuildPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - codebuild:*
+                  - iam:PassRole
+                Resource: '*'
+        - PolicyName: EnableRepositoryClone
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - codecommit:Get*
+                  - codecommit:List*
+                  - codecommit:UploadArchive
+                Resource: !GetAtt Repository.Arn
+        - PolicyName: EnableGetDockerRegistryAuthToken
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ecr:GetAuthorizationToken
+                Resource: '*'
         - PolicyName: EnableDockerRegistryPush
           PolicyDocument:
             Version: '2012-10-17'
             Statement:
               - Effect: Allow
-                Action: ecr:PutImage
+                Action:
+                  - ecr:InitiateLayerUpload
+                  - ecr:UploadLayerPart
+                  - ecr:CompleteLayerUpload
+                  - ecr:PutImage
+                  - ecr:BatchCheckLayerAvailability
                 Resource: !GetAtt DockerRegistry.Arn
-        - PolicyName: EnableS3Upload
+        - PolicyName: EnableS3Actions
           PolicyDocument:
             Version: '2012-10-17'
             Statement:
               - Effect: Allow
-                Action: s3:PutObject
-                Resource: !GetAtt DockerRegistry.Arn
+                Action:
+                  - s3:CreateBucket
+                  - s3:GetObject
+                  - s3:GetObjectAcl
+                  - s3:List*
+                  - s3:PutObject
+                  - s3:PutObjectAcl
+                Resource: '*'
+        - PolicyName: AllowLogging
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:CreateLogGroup
+                  - logs:PutLogEvents
+                Resource: '*'
   Repository:
     Type: AWS::CodeCommit::Repository
     Properties:
@@ -77,9 +146,11 @@ Resources:
         Image: aws/codebuild/standard:5.0
         ComputeType: BUILD_GENERAL1_SMALL
         ImagePullCredentialsType: CODEBUILD
+        PrivilegedMode: true
       ServiceRole: !GetAtt CICDPipelineRole.Arn
   PipelineArtifactStore:
     Type: AWS::S3::Bucket
+    DeletionPolicy: Delete
   CICDPipeline:
     Type: AWS::CodePipeline::Pipeline
     Properties:
@@ -112,7 +183,7 @@ Resources:
                 - Name: SourceOutput
               Configuration:
                 ProjectName: !GetAtt DockerCodeBuildProject.Arn
-                EnvironmentVariables: !Ref '[{"name":"REPOSITORY_URI","value":"${DockerRegistry.RepositoryUri}","type":"PLAINTEXT"}]'
+                EnvironmentVariables: !Sub '[{"name":"REPOSITORY_URI","value":"${DockerRegistry.RepositoryUri}","type":"PLAINTEXT"},{"name":"ACCOUNT_ID","value":"${AWS::AccountId}","type":"PLAINTEXT"}]'
               RunOrder: 2
         - Name: 'deploy-frontend'
           Actions:
@@ -126,14 +197,16 @@ Resources:
                 - Name: SourceOutput
               Configuration:
                 BucketName: !Ref StaticHostingBucket
-                Extract: false
-                ObjectKey: '/'
+                Extract: true
                 CannedACL: public-read
       ArtifactStore:
         Type: S3
         Location: !Ref PipelineArtifactStore
 
-
+Outputs:
+  HelloWorldUrl:
+    Description: URL of the hello world-style static website
+    Value: !GetAtt StaticHostingBucket.WebsiteURL
 # IAM role for python
 # - allows reading db pw
 # - allows desribeDbInstances for db instance
