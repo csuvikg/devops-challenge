@@ -1,6 +1,6 @@
 ## Deployment
 ```shell
-aws cloudformation update-stack --stack-name devops-challenge --capabilities CAPABILITY_IAM --template-body file://cfn-resources.yaml
+aws cloudformation create-stack --stack-name devops-challenge --capabilities CAPABILITY_IAM --template-body file://cfn-resources.yaml
 ```
 
 ## Tasks
