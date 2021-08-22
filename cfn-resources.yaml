@@ -20,15 +20,15 @@ Resources:
     Properties:
       Type: String
       Value: !Ref DatabasePassword
-  Database:
-    Type: AWS::RDS::DBInstance
-    Properties:
-      DBInstanceClass: db.t2.micro
-      Engine: postgres
-      EngineVersion: '12.7'
-      MasterUsername: !Ref DatabaseUsername
-      MasterUserPassword: !GetAtt DatabasePasswordParameter.Value
-      AllocatedStorage: '20'
+#  Database:
+#    Type: AWS::RDS::DBInstance
+#    Properties:
+#      DBInstanceClass: db.t2.micro
+#      Engine: postgres
+#      EngineVersion: '12.7'
+#      MasterUsername: !Ref DatabaseUsername
+#      MasterUserPassword: !GetAtt DatabasePasswordParameter.Value
+#      AllocatedStorage: '20'
   CICDPipelineRole:
     Type: AWS::IAM::Role
     Properties:
@@ -65,6 +65,19 @@ Resources:
         S3:
           Bucket: 'devops-challenge-content'
           Key: 'test.zip'
+  DockerCodeBuildProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Source:
+        Type: CODEPIPELINE
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        Type: LINUX_CONTAINER
+        Image: aws/codebuild/standard:5.0
+        ComputeType: BUILD_GENERAL1_SMALL
+        ImagePullCredentialsType: CODEBUILD
+      ServiceRole: !GetAtt CICDPipelineRole.Arn
   PipelineArtifactStore:
     Type: AWS::S3::Bucket
   CICDPipeline:
@@ -78,8 +91,8 @@ Resources:
               ActionTypeId:
                 Category: Source
                 Owner: AWS
-                Version: '1'
                 Provider: CodeCommit
+                Version: '1'
               OutputArtifacts:
                 - Name: SourceOutput
               Configuration:
@@ -87,23 +100,38 @@ Resources:
                 RepositoryName: !GetAtt Repository.Name
                 PollForSourceChanges: true
               RunOrder: 1
+        - Name: 'build-deploy-docker'
+          Actions:
+            - Name: 'build-deploy-docker'
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: '1'
+              InputArtifacts:
+                - Name: SourceOutput
+              Configuration:
+                ProjectName: !GetAtt DockerCodeBuildProject.Arn
+                EnvironmentVariables: !Ref '[{"name":"REPOSITORY_URI","value":"${DockerRegistry.RepositoryUri}","type":"PLAINTEXT"}]'
+              RunOrder: 2
+        - Name: 'deploy-frontend'
+          Actions:
+            - Name: 'deploy-frontend-to-s3'
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Provider: S3
+                Version: '1'
+              InputArtifacts:
+                - Name: SourceOutput
+              Configuration:
+                BucketName: !Ref StaticHostingBucket
+                Extract: false
+                ObjectKey: '/'
+                CannedACL: public-read
       ArtifactStore:
         Type: S3
         Location: !Ref PipelineArtifactStore
-#        - Name: 'Build and push docker image'
-#          Actions:
-#            - Name: 'Build docker image'
-#              ActionTypeId:
-#                Category: Build
-#                Owner: AWS
-#                Provider: CodeBuild
-#                Version: '1'
-#              Configuration:
-                
-
-              #          Actions:
-#        - Name: 'Upload static content to S3 bucket'
-#          Actions:
 
 
 # IAM role for python
