@@ -40,6 +40,15 @@ Resources:
     Properties:
       Type: String
       Value: !Ref DatabasePassword
+  DatabaseSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: 'Public access'
+      SecurityGroupIngress:
+        - CidrIp: '0.0.0.0/0'
+          IpProtocol: 'tcp'
+          FromPort: 5432
+          ToPort: 5432
   Database:
     Type: AWS::RDS::DBInstance
     Properties:
@@ -49,6 +58,9 @@ Resources:
       MasterUsername: !Ref DatabaseUsername
       MasterUserPassword: !GetAtt DatabasePasswordParameter.Value
       AllocatedStorage: '20'
+      PubliclyAccessible: true
+      VPCSecurityGroups:
+        - !GetAtt DatabaseSecurityGroup.GroupId
   CICDPipelineRole:
     Type: AWS::IAM::Role
     Properties:
@@ -207,9 +219,3 @@ Outputs:
   HelloWorldUrl:
     Description: URL of the hello world-style static website
     Value: !GetAtt StaticHostingBucket.WebsiteURL
-# IAM role for python
-# - allows reading db pw
-# - allows desribeDbInstances for db instance
-
-# AWS::IAM::AccessKey
-# pass to python env

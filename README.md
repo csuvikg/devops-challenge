@@ -1,3 +1,8 @@
+## Deployment
+```shell
+aws cloudformation update-stack --stack-name devops-challenge --capabilities CAPABILITY_IAM --template-body file://cfn-resources.yaml
+```
+
 ## Tasks
 
 - Create resources in CloudFormation:
@@ -26,3 +31,4 @@
 - Instead of storing the password in SSM Parameter Store, AWS Secrets Manager can even generate and attach password to
   the RDS instance. I feel like it is more appropriate and is a more common practice. Also, Parameter Store SecureString
   type is not supported in CloudFormation
+- The database-related tasks are not very clear, some clarification would have helped a lot
